@@ -13,6 +13,7 @@ Pipfile
 Pipfile.lock
 .DS_Store
 secrets.json
+qr.png
 oob_qrcode.png
 oob_small_qrcode.png
 prism-cli-v*/
