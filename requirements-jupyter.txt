@@ -1,9 +1,13 @@
+# Install jupyterlab in this virtual environment complicates dependency resolution.
+# Prefer connecting to an external Jupyter Lab.
+# ipython kernel install --name "rootsid" --user
+
 didcomm==0.3.1
 peerdid==0.4.0
-ipython<=8.22.2
-typing-extensions<=4.0.1
-requests
-pymongo
-qrcode
-matplotlib
-#jupyterlab
+ipython==8.22.2
+typing-extensions==4.0.1
+requests==2.32.3
+pymongo==4.10.1
+qrcode==8.0
+matplotlib==3.10.0
+ipykernel==6.29.5
