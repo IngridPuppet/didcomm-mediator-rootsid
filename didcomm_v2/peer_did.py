@@ -1,5 +1,7 @@
 """ Peer DID helpers"""
 import json
+import base64
+import base58
 from typing import Optional, List
 from didcomm.secrets.secrets_util import generate_x25519_keys_as_jwk_dict, generate_ed25519_keys_as_jwk_dict, jwk_to_secret
 from didcomm.did_doc.did_doc import DIDDoc, VerificationMethod, DIDCommService
@@ -28,37 +30,68 @@ class SecretsResolverMongo(SecretsResolverEditable):
         self.db = self.mongo.mediator
         self.secrets = self.db.secrets
 
+    def _extract_base58_public_key(self, jwk: dict) -> str:
+        """ Extract base58 public key from JWK """
+        x = base64.urlsafe_b64decode(jwk["x"] + "==")
+        return base58.b58encode(x).decode("utf-8")
+
     async def add_key(self, secret: Secret):
+        """ Add a secret to the database and store an alternative ID """
+        verification_material = secret.verification_material
+        jwk = json.loads(verification_material.value)
+
+        base58_public_key = self._extract_base58_public_key(jwk)
+        did = secret.kid.split("#")[0]
+        alt_id = f"{did}#{base58_public_key}"
+
         self.secrets.insert_one({
             "kid": secret.kid,
-            "type": secret.type.value,
+            "alt_id": alt_id,
+            "type": secret.type,
             "verification_material": {
-                "format": secret.verification_material.format.value,
+                "format": secret.verification_material.format.value,  # Convert enum to value
                 "value": secret.verification_material.value
             }
         })
 
     async def get_kids(self) -> List[str]:
+        """ Get all key IDs (KIDs) from the database """
         kids = self.secrets.find({},{"kid": 1})
         return [k["kid"] for k in kids]
-    async def get_key(self, kid: DID_URL) -> Optional[Secret]:
-        try:
-            key = self.secrets.find({"kid": kid})[0]
-            return Secret(
-                kid,
-                VerificationMethodType(key["type"]),
-                VerificationMaterial(VerificationMaterialFormat(
-                        key["verification_material"]["format"]),
-                        key["verification_material"]["value"]
-                        )
-                )
-        except IndexError:
-            return None
 
+    async def get_key(self, kid: DID_URL) -> Optional[Secret]:
+        """ Retrieve a secret by kid or altId """
+        key = self.secrets.find_one({"$or": [{"kid": kid}, {"altId": kid}]})
+        if key:
+            return Secret(
+                key["kid"],
+                VerificationMethodType(key["type"]),
+                VerificationMaterial(
+                    VerificationMaterialFormat(key["verification_material"]["format"]),  # Convert value back to enum
+                    key["verification_material"]["value"]
+                )
+            )
+        return None
+    
     async def get_keys(self, kids: List[DID_URL]) -> List[DID_URL]:
-        kids_db = self.secrets.find({"kid": { "$in": kids }},{"kid": 1})
+        """ Retrieve multiple key IDs that exist in the database """
+        kids_db = self.secrets.find({"$or": [{"kid": {"$in": kids}}, {"altId": {"$in": kids}}]}, {"kid": 1})
         return [k["kid"] for k in kids_db]
 
+    async def find_key(self, kid: DID_URL) -> Optional[Secret]:
+        """ Retrieve a secret by kid or altId """
+        key = self.secrets.find_one({"$or": [{"kid": kid}, {"altId": kid}]})
+        if key:
+            return Secret(
+                key["kid"],
+                VerificationMethodType(key["type"]),
+                VerificationMaterial(
+                    VerificationMaterialFormat(key["verification_material"]["format"]),
+                    key["verification_material"]["value"]
+                )
+            )
+        return None
+    
 class DIDResolverPeerDID(DIDResolver):
     """ Helper class to resolve Peer DID Documents """
     async def resolve(self, did: DID) -> DIDDoc:
